@@ -1,0 +1,167 @@
+---
+title: "Tidying FAO production data"
+output: html_document
+---
+
+##Libraries and setup
+
+```{r setup, include=FALSE}
+
+library(janitor)
+library(here)
+library(tidyverse)
+library(vroom)
+library(countrycode)
+
+source(here("source", "directories.R"))
+
+```
+
+
+##Import livestock production data (stocks and primary)
+
+```{r, include=FALSE}
+
+#Stocks
+livestock_animals <- vroom(here(dir_faostat_2021,  "Production_Livestock_E_All_Data_(Normalized).csv")) %>% 
+  clean_names()
+
+#bit o' exploration
+unique(livestock_animals$item)
+unique(livestock_animals$element) #only stocks
+unique(livestock_animals$unit)
+
+livestock_animals %>% filter(unit=="No") %>% .$item %>% unique() #items for unit in number "No." is beehives 
+(head_1000 <- livestock_animals %>% filter(unit=="1000 Head") %>% .$item %>% unique()) #1000 Head mainly for Poultry and rodents
+(head <- livestock_animals %>% filter(unit=="Head") %>% .$item %>% unique()) #1000 Head mainly for Poultry and rodents
+
+
+#Primary commodities
+
+livestock_primary <- vroom(here(dir_faostat_2021,  "Production_LivestockPrimary_E_All_Data_(Normalized).csv")) %>% 
+  clean_names() 
+
+#bit o' exploration
+sort(unique(livestock_primary$item))
+sort(unique(livestock_primary$element))
+unique(livestock_primary$unit)
+
+livestock_primary %>% filter(element == "Prod Popultn") %>% .$item %>% unique()  #production population is for wool, honey,beeswax
+livestock_primary %>% filter(element=="Producing Animals/Slaughtered") %>% .$item %>% unique() #for all commodities but the stocks are probably more valuable here - several reasons producers might not slaughter but if stocks are increasing this can hide trends
+livestock_primary %>% filter(element=="Production") %>% .$item %>% unique() # all products have production data
+livestock_primary %>% filter(element == "Production") %>% .$unit %>% unique() # we want tonnes but what about eggs
+livestock_primary %>% filter(element == "Production" & unit== "1000 No") %>% .$item %>% unique() # eggs in numbers
+livestock_primary %>% filter(element == "Production" & unit== "tonnes") %>% .$item %>% unique() # eggs in numbers and in tonnes
+
+
+```
+
+
+
+##Select and group items and elements we want
+
+```{r, include=FALSE}
+
+#Stocks data (mainly about choosing items)
+
+(
+  stocks_tidy <- livestock_animals %>% 
+    #take out elements we don't want  
+    filter(!item %in% c("Cattle", "Buffaloes", "Sheep", "Goats", "Poultry Birds", "Beehives")) %>% 
+    #aggregate some groups e.g. guinea fowl
+    mutate(group = case_when(item %in% c("Asses", "Horses",  "Mules") ~ "Equines",
+                             item %in% c("Turkeys", "Ducks", "Geese and guinea fowls", "Pigeons, other birds") ~ "Poultry & game birds, other",
+                             item %in% c("Camels", "Camelids, other") ~ "Camelids",
+                             item %in% c("Rabbits and hares", "Rodents, other") ~ "Miscellaneous, other",
+                             TRUE ~ item)) %>% 
+    #adjust poultry and rodents value to 1000 fold greater because of reported units
+    mutate(value = case_when(item %in% head_1000 ~ value*1000,
+                             TRUE ~ value)) %>% 
+    #all units are now in head
+    mutate(unit = "Head") %>% 
+    #get rid of superfluous columns
+    select(area, item, group, year, value, unit)
+)
+
+
+food_items <- c("Eggs, hen, in shell" , "Eggs, other bird, in shell", "Meat nes", "Meat, ass" ,"Meat, bird nes","Meat, buffalo", "Meat, camel", "Meat, cattle", "Meat, chicken", "Meat, duck","Meat, game","Meat, goat", "Meat, goose and guinea fowl", "Meat, horse","Meat, mule", "Meat, other camelids"       
+, "Meat, other rodents", "Meat, pig", "Meat, rabbit", "Meat, sheep", "Meat, turkey", "Milk, whole fresh buffalo", "Milk, whole fresh camel", "Milk, whole fresh cow", "Milk, whole fresh goat", "Milk, whole fresh sheep", "Offals, edible, buffaloes", "Offals, edible, camels", "Offals, edible, cattle", "Offals, edible, goats", "Offals, horses", "Offals, pigs, edible", "Offals, sheep,edible")
+
+equine_meat <- c("Meat, ass" , "Meat, horse",  "Meat, mule")
+bird_meat <- c("Meat, turkey", "Meat, duck", "Meat, game", "Meat, goose and guinea fowl", "Meat, bird nes")
+camelid_meat <- c("Meat, camel", "Meat, other camelids")
+other_meat <- c("Meat, rabbit", "Meat, other rodents", "Meat nes")
+eggs <- c("Eggs, hen, in shell" , "Eggs, other bird, in shell")
+milk <- c("Milk, whole fresh buffalo", "Milk, whole fresh camel", "Milk, whole fresh cow", "Milk, whole fresh goat", "Milk, whole fresh sheep")
+offals <- c("Offals, edible, buffaloes", "Offals, edible, camels", "Offals, edible, cattle", "Offals, edible, goats", "Offals, horses", "Offals, pigs, edible", "Offals, sheep,edible")
+bovine_meat <- c("Meat, cattle", "Meat, buffalo")
+ovine_meat <- c("Meat, goat", "Meat, sheep")
+
+
+
+(
+  production_tidy <- livestock_primary %>% 
+    filter(element=="Production" & unit == "tonnes" & item %in% food_items) %>% 
+    mutate(group = case_when(item %in% equine_meat ~ "Equine meat",
+                             item %in% bird_meat  ~ "Poultry & game meat, other",
+                             item %in% camelid_meat ~ "Camelid meat",
+                             item %in% other_meat  ~ "Miscellaneous meats",
+                             item %in% eggs ~ "Eggs",
+                             item %in% milk ~ "Milk", 
+                             item %in% offals ~ "Offals",
+                             item %in% ovine_meat ~ "Sheep & goat meat",
+                             item %in% bovine_meat ~ "Cattle and buffalo meat",
+                             item == "Meat, chicken" ~ "Chicken meat",
+                             TRUE ~ item)) %>% 
+    select(area, item, group, element, year, value, unit)
+  
+  
+)
+
+
+```
+
+
+## Select the countries we want to retain
+
+```{r}
+
+#sort coding out for both stocks and production 
+
+Encoding(stocks_tidy$area) <- "latin1" #deals with the non-UTF
+stocks_tidy$area <- iconv(stocks_tidy$area, "latin1", "UTF-8",sub='')
+
+Encoding(production_tidy$area) <- "latin1" #deals with the non-UTF
+production_tidy$area <- iconv(production_tidy$area, "latin1", "UTF-8",sub='')
+
+
+#find the country and item combinations that do not have a full time_series
+
+(
+  stocks_tally <- stocks_tidy %>% 
+    filter(!is.na(value)) %>% 
+    group_by(area, item) %>% 
+    summarise(n = n()) %>% 
+    mutate(iso_3c = countrycode(area, origin = "country.name", destination = "iso3c", warn =TRUE))
+)
+
+
+(
+  production_tally <- production_tidy %>% 
+    filter(!is.na(value)) %>% 
+    group_by(area, item) %>% 
+    summarise(n = n())%>% 
+    mutate(iso_3c = countrycode(area, origin = "country.name", destination = "iso3c", warn =TRUE))
+)
+
+
+
+stocks_tidy %>% 
+  left_join(stocks_tally, by= c("area", "item"))
+
+production_tidy %>% 
+  left_join(production_tally, by= c("area", "item"))
+
+
+```
+
