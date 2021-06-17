@@ -135,33 +135,124 @@ Encoding(production_tidy$area) <- "latin1" #deals with the non-UTF
 production_tidy$area <- iconv(production_tidy$area, "latin1", "UTF-8",sub='')
 
 
+#Composite countries pre-dissolution to highlight and combine - main shocks detected here will be geopolitical however
+
+ussr <- c("Armenia", "Azerbaijan", "Belarus", "Estonia", "Georgia", "Kazakhstan", "Kyrgyzstan", "Latvia" , "Lithuania", "Republic of Moldova", "Russian Federation" , "Tajikistan", "Turkmenistan" , "Ukraine"  , "USSR" , "Uzbekistan" )
+
+yugoslavia <- c("Bosnia and Herzegovina", "Croatia", "Montenegro", "Serbia", "Serbia and Montenegro", "Slovenia", "North Macedonia", "Yugoslav SFR")
+
+czechoslovakia <- c("Czechia", "Czechoslovakia", "Slovakia" )
+
+sudan <- c("South Sudan", "Sudan", "Sudan (former)")
+
+ethiopia <- c("Eritrea", "Ethiopia" , "Ethiopia PDR" )
+
+
+stocks_tidy_2 <- 
+  stocks_tidy %>% 
+  mutate(area_2 = case_when(area %in% ussr ~ "Former USSR",
+                            area %in% yugoslavia ~ "Former Yugoslavia",
+                            area %in% czechoslovakia ~ "Former Czechoslovakia",
+                            area %in% sudan ~ "Former Sudan",
+                            area %in% ethiopia ~ "Former Ethiopia",
+                            TRUE ~ area))
+
+
+production_tidy_2 <- 
+  production_tidy %>% 
+  mutate(area_2 = case_when(area %in% ussr ~ "Former USSR",
+                            area %in% yugoslavia ~ "Former Yugoslavia",
+                            area %in% czechoslovakia ~ "Former Czechoslovakia",
+                            area %in% sudan ~ "Former Sudan",
+                            area %in% ethiopia ~ "Former Ethiopia",
+                            TRUE ~ area))
+
+
+
 #find the country and item combinations that do not have a full time_series
 
 (
-  stocks_tally <- stocks_tidy %>% 
+  stocks_tally <- stocks_tidy_2 %>% 
     filter(!is.na(value)) %>% 
     group_by(area, item) %>% 
-    summarise(n = n()) %>% 
-    mutate(iso_3c = countrycode(area, origin = "country.name", destination = "iso3c", warn =TRUE))
+    summarise(n = n())
 )
 
 
 (
-  production_tally <- production_tidy %>% 
+  production_tally <- production_tidy_2 %>% 
     filter(!is.na(value)) %>% 
     group_by(area, item) %>% 
-    summarise(n = n())%>% 
-    mutate(iso_3c = countrycode(area, origin = "country.name", destination = "iso3c", warn =TRUE))
+    summarise(n = n())
 )
 
 
 
-stocks_tidy %>% 
-  left_join(stocks_tally, by= c("area", "item"))
+#join by the length of non-NA time series,  remove continents, and join broken states
 
-production_tidy %>% 
-  left_join(production_tally, by= c("area", "item"))
+(
+  stocks_tidy_3 <- 
+    stocks_tidy_2 %>% 
+    left_join(stocks_tally, by= c("area", "item")) %>%
+    mutate(iso_3c = countrycode(area, origin = "country.name", destination = "iso3c", warn=TRUE)) %>% 
+    mutate(iso_3c = case_when(area %in% c("Serbia and Montenegro", "Yugoslav FR",  "Czechoslovakia") ~ "FMR",
+                              TRUE ~ iso_3c)) %>% 
+    filter(!is.na(iso_3c))
+)
+  
+  
+(
+  production_tidy_3 <- 
+    production_tidy_2 %>% 
+    left_join(production_tally, by= c("area", "item"))%>% 
+    mutate(iso_3c = countrycode(area, origin = "country.name", destination = "iso3c", warn=TRUE)) %>% 
+    mutate(iso_3c = case_when(area %in% c("Serbia and Montenegro", "Yugoslav FR",  "Czechoslovakia") ~ "FMR",
+                              TRUE ~ iso_3c)) %>% 
+    filter(!is.na(iso_3c))
+)
 
+unique(stocks_tidy_3$area)
+```
+
+
+## Get the country groupings we want for the analysis
+```{r, include=FALSE}
+
+# former_countries_stocks <- stocks_tidy_3 %>% 
+#   filter(area %in% c(ussr, yugoslavia, czechoslovakia, sudan, ethiopia)) %>% 
+#   mutate(value = case_when(is.na(value) ~ 0,
+#                            TRUE ~ value)) %>% 
+#   ungroup() %>% 
+#   group_by(area_2, group, year) %>% 
+#   summarise(value)
+# 
+# former_countries_production <- production_tidy_3 %>% 
+#   filter(area %in% c(ussr, yugoslavia, czechoslovakia, sudan, ethiopia)) %>% 
+#   mutate(value = case_when(is.na(value) ~ 0,
+#                            TRUE ~ value)) %>% 
+#   group_by(iso_3c, area_2, item,year, unit) %>% 
+#   summarise(value)
+
+
+
+stocks_tidy_no_former <- 
+  stocks_tidy_3 %>%
+  filter(n == 59) %>% 
+  group_by(iso_3c, area, group,year, unit) %>% 
+  summarise(value = sum(value)) %>% 
+  saveRDS(here("data", "production_tidy","stocks_wo_former_nations.rds"))
+
+
+production_tidy_no_former <- 
+  production_tidy_3 %>% 
+  filter(n == 59) %>% 
+  group_by(iso_3c, area, group, year, unit) %>% 
+  summarise(value = sum(value)) %>% 
+  saveRDS(here("data", "production_tidy","production_wo_former_nations.rds"))
+  
+
+
+#rm(production_tidy,production_tidy_2, production_tidy_3, stocks_tidy, stocks_tidy_2, stocks_tidy_3)
 
 ```
 
