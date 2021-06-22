@@ -101,7 +101,7 @@ shocks_by_cooks_distance <- bind_rows(shock_tibbles_list) %>%
 
 #export shocks data
 
-write_csv(shocks_by_cooks_distance, file = here("data", "generated_data", "shocks_w_baselines_cooks_distance.csv"))
+saveRDS(shocks_by_cooks_distance, file = here("data", "generated_data", "shocks_w_baselines_cooks_distance.rds"))
 
 
 
@@ -168,7 +168,7 @@ shocks_by_span <- bind_rows(shock_tibbles_list) %>%
 
 #export shocks data
 
-write_csv(shocks_by_span, file = here("data", "generated_data", "shocks_w_baselines_span.csv"))
+saveRDS(shocks_by_span, file = here("data", "generated_data", "shocks_w_baselines_span.rds"))
 
 
 ```
