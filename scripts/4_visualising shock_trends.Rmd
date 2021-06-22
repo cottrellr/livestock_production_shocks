@@ -1,0 +1,108 @@
+---
+title: "Visualising shock trends"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(vroom)
+library(ggpubr)
+library(tidyverse)
+library(here) 
+
+```
+
+## Import data
+```{r}
+
+shocks_cd <- read_csv(here("data", "generated_data", "shocks_w_baselines_cooks_distance.csv"))
+
+shocks_span <- read_csv(here("data", "generated_data", "shocks_w_baselines_span.csv"))
+
+production <- tibble(readRDS(here("data", "production_tidy", "production_wo_former_nations.rds"))) %>% ungroup()
+
+```
+
+
+## Annual time series by group
+```{r}
+
+
+ time_series_freq <- production %>% 
+    group_by(group, year) %>% 
+    summarise(row_n= n()) %>% 
+  ungroup() %>% 
+  mutate(group = as.character(group),
+         year = as.numeric(year))
+ 
+
+
+shocks_by_group <- 
+  shocks_cd %>% 
+   filter(shock_presence ==1 & delta_production>=0) %>% 
+   drop_na(lagged_value) %>% 
+   group_by(group, year, average, baseline_durations, cooks_distance) %>% 
+   summarise(shocks_n = n())
+ 
+table_nrow <- length(unique(shocks_cd$group))*length(seq(from =1961, to =2019))*length(c("mean", "median"))*length(seq(from=0.4, to=0.8, by=0.1))*length(unique(shocks_cd$baseline_durations))
+
+
+rep(seq(from =1961, to =2019), length.out = table_nrow)
+rep(unique(shocks_cd$group), length.out = table_nrow)
+
+
+shocks_by_group_by_year <- 
+  as.data.frame(table(shocks_by_group$year, shocks_by_group$group, shocks_by_group$average,shocks_by_group$baseline_durations, shocks_by_group$cooks_distance)) %>% 
+  rename(year = Var1,
+         group= Var2, 
+         average = Var3,
+         baseline_duration = Var4,
+         span = Var5) %>% 
+  mutate(year = as.numeric(levels(year))[year],
+         group = as.character(group)) %>% 
+  left_join(time_series_freq, by=c("year", "group")) %>% 
+  mutate(normalized = Freq/row_n)
+              
+```
+## Temporal trends in shocks per group
+```{r}
+
+meat_list <- unique(shocks$group)
+
+
+camelids <- shocks_by_group_by_year %>% filter(group=="Camelid meat")
+
+ggplot(camelids, aes(x=year, y=Freq, group = interaction(average, baseline_duration, cooks_D)))+
+  geom_line()
+
+cattle <- shocks_by_group_by_year %>% filter(group=="Cattle and buffalo meat")
+
+ggplot()+
+  geom_line(data = cattle, aes(x=year, y=normalized, group = interaction(average, baseline_duration, span)))+
+  geom_line(data = cattle_average, aes(x=year, y=mean), col= "red")
+
+
+cattle_average <- 
+  cattle %>% 
+  group_by(year) %>% 
+  summarise(median = median(normalized),
+            mean = mean(normalized))
+
+cattle_CI <- 
+  cattle %>% 
+  group_by(year) %>% 
+  summarise(min = min(normalized),
+            max=max(normalized))
+
+
+ggplot()+
+  geom_ribbon(data = cattle_CI, aes(x = year, ymin = min, ymax=max), fill= "grey50")+
+  geom_line(data = cattle_average, aes(x=year, y=mean), col="red")+
+  
+
+
+
+
+plot(cattle_average$mean, type="l")
+
+```
+

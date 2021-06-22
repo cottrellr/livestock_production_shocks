@@ -1,0 +1,35 @@
+---
+title: "Shock detection function"
+output: html_document
+---
+
+## Libraries and setup
+```{r setup, include=FALSE}
+
+library(here) 
+library(tidyverse)
+
+```
+
+##Function for shock detection
+```{r}
+
+
+shock_detector <- function(target_time_series, target_cooks_distance, target_span){
+  this_time_series <- target_time_series
+  this_model <- loess(this_time_series~seq(1:length(this_time_series)))
+  these_residuals <- residuals(this_model)
+  this_regression <- lm(these_residuals~lag(these_residuals))
+  this_cooks_distance <- cooks.distance(this_regression)
+  shock_presence <- c(0, if_else(this_cooks_distance> target_cooks_distance, true = 1, false = 0))
+  return(shock_presence)
+}
+
+
+some_test_data <- tibble(readRDS(here("data", "production_tidy", "production_wo_former_nations.rds"))) %>% slice(1:59) %>% .$value
+
+shock_detector(target_time_series = some_test_data, target_cooks_distance = 0.3) #works nicely
+
+
+```
+

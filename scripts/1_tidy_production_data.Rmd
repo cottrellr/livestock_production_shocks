@@ -7,7 +7,7 @@ output: html_document
 
 ```{r setup, include=FALSE}
 
-library(janitor)
+library(janitor) 
 library(here)
 library(tidyverse)
 library(vroom)
