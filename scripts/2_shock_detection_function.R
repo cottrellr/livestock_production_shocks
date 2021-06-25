@@ -33,3 +33,10 @@ shock_detector_loess <- function(target_time_series, target_cooks_distance, targ
   shock_presence <- c(0, if_else(this_cooks_distance> target_cooks_distance, true = 1, false = 0))
   return(shock_presence)
 }
+
+
+
+
+
+
+

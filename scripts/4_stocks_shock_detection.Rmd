@@ -1,10 +1,10 @@
 ---
-title: "Detect shocks in livestock production"
+title: "Shock detection in animal stocks"
 output: html_document
 ---
 
+#libraries
 ```{r setup, include=FALSE}
-
 library(here)
 library(vroom)
 library(tidyverse)
@@ -18,7 +18,7 @@ source(here("scripts", "2_shock_detection_function.R"))
 ## Import tidied production data
 
 ```{r cars}
-production <- tibble(readRDS(here("data", "production_tidy", "production_wo_former_nations.rds"))) %>% ungroup()
+production <- tibble(readRDS(here("data", "production_tidy", "stocks_wo_former_nations.rds"))) %>% ungroup()
 
 
 ```
@@ -75,6 +75,8 @@ cooks_distances <- seq(from =0.05, to=1, by=0.05)
 
 shocks_gam_apply <- function(this_cd){
   
+  message("Processi")
+  
   #data frame with shock
   these_shocks <- 
     production_w_baselines %>% 
@@ -97,7 +99,7 @@ shocks_by_cooks_distance <- map_df(cooks_distances, shocks_gam_apply) %>%
 
 #export shocks data
 
-saveRDS(shocks_by_cooks_distance, file = here("data", "generated_data","shocks_to_primary_comms", "shocks_w_baselines_cooks_distance_COMMS.rds"))
+saveRDS(shocks_by_cooks_distance, file = here("data", "generated_data", "shocks_to_stocks", "shocks_w_baselines_cooks_distance_STOCKS.rds"))
 
 
 
@@ -134,6 +136,7 @@ spans <- seq(from =0.4, to=0.8, by=0.1)
 
 shock_loess_apply <-   function(this_span){
   
+  
   #data frame with shock
   these_shocks <- 
     production_w_baselines %>% 
@@ -145,17 +148,19 @@ shock_loess_apply <-   function(this_span){
   
   return(these_shocks)
 }
+  
 
 shocks_by_span <- map_df(spans, shock_loess_apply) %>% 
   mutate(delta_production = lagged_value - value) %>% 
-  filter(shock_presence=1)
+  filter(shock_presence==1)
 
 #export shocks data
 
-saveRDS(shocks_by_span, file = here("data", "generated_data", "shocks_to_primary_comms", "shocks_w_baselines_span_COMMS.rds"))
+saveRDS(shocks_by_span, file = here("data", "generated_data",  "shocks_to_stocks", "shocks_w_baselines_span_STOCKS.rds"))
 
 
 ```
+
 
 
 #span sensitivity
