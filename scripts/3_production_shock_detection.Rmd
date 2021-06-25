@@ -59,7 +59,7 @@ production_w_baselines <-
 
 ```
 
-## Detect shocks varying cooks distance
+## Detect shocks with GAM varying cooks distance
 ```{r}
 
 #rules of thumb for cooks distance applicable to each time series
@@ -67,37 +67,44 @@ production_w_baselines <-
 # Greater than 1 
 #do a sequence between the two
 
+
+#using Gam shock detector
+
 cooks_distances <- seq(from =0.05, to=1, by=0.05)
 
-shock_tibbles_list <- vector(mode="list", length = length(cooks_distances))
+# shock_tibbles_list <- vector(mode="list", length = length(cooks_distances))
 
-for(i in cooks_distances){
+#for(i in cooks_distances){
   
-  #element
-  this_element <- which(cooks_distances==i)
+  
+shocks_gam_apply <- function(this_cd){
+  
   
   #data frame with shock
   these_shocks <- 
   production_w_baselines %>% 
   group_by(iso_3c, area, group) %>% 
   nest() %>% 
-  mutate(shock_presence = map(data, ~shock_detector_gam(target_time_series = .$value, target_cooks_distance = i))) %>% 
+  mutate(shock_presence = map(data, ~shock_detector_gam(target_time_series = .$value, target_cooks_distance = this_cd))) %>% 
   unnest(cols = c(data, shock_presence)) %>% 
-  mutate(cooks_distance = i)
+  mutate(cooks_distance = this_cd)
   
-  #add dataframe to list
-  shock_tibbles_list[[this_element]] <- these_shocks
+  return(these_shocks)
   
   
 }
   
   
+shocks_by_cooks_distance <- map_df(cooks_distances, shocks_gam_apply) %>% 
+  mutate(delta_production = lagged_value - value) %>% 
+  filter(shock_presence==1)
+
 #bind the list into a single tibble
 
-shocks_by_cooks_distance <- bind_rows(shock_tibbles_list) %>% 
-  mutate(delta_production = lagged_value - value)
-
-
+# shocks_by_cooks_distance <- bind_rows(shock_tibbles_list) %>% 
+#   mutate(delta_production = lagged_value - value)
+# 
+# 
 
 #export shocks data
 
@@ -130,46 +137,58 @@ ggplot(data = sensitivity, aes(x=cooks_distance, y=n))+geom_line()+geom_vline(lt
 ```
 
 
-## Detect shocks varying span
+## Detect shocks with LOESS varying span
 ```{r}
 
 
 spans <- seq(from =0.4, to=0.8, by=0.1)
-
-shock_tibbles_list <- vector(mode="list", length = length(cooks_distances))
-
-for(i in spans){
+  
+  
+  
+shock_loess_apply <-   function(this_span){
   
   #element
-  this_element <- which(spans==i)
+  #this_element <- which(spans==this_span)
   
   #data frame with shock
   these_shocks <- 
   production_w_baselines %>% 
   group_by(iso_3c, area, group) %>% 
   nest() %>% 
-  mutate(shock_presence = map(data, ~shock_detector_loess(target_time_series = .$value, target_cooks_distance = 0.3, target_span = i))) %>% 
+  mutate(shock_presence = map(data, ~shock_detector_loess(target_time_series = .$value, target_cooks_distance = 0.3, target_span = this_span))) %>% 
   unnest(cols = c(data, shock_presence)) %>% 
-  mutate(span = i)
+  mutate(span = this_span)
   
-  #add dataframe to list
-  shock_tibbles_list[[this_element]] <- these_shocks
-  
-  
+  return(these_shocks)
+  # #add dataframe to list
+  # shock_tibbles_list[[this_element]] <- these_shocks
 }
   
-  
-#bind the list into a single tibble
 
-shocks_by_span <- bind_rows(shock_tibbles_list) %>% 
-  mutate(delta_production = lagged_value - value)
-
-
+shocks_by_span <- map_df(spans, shock_loess_apply) %>% 
+  mutate(delta_production = lagged_value - value) %>% 
+  filter(shock_presence=1)
 
 #export shocks data
 
 saveRDS(shocks_by_span, file = here("data", "generated_data", "shocks_w_baselines_span.rds"))
 
+
+```
+
+
+#span sensitivity
+```{r}
+
+sensitivity_2 <- shocks_by_span %>% 
+  filter(shock_presence==1) %>% 
+  drop_na(lagged_value) %>% 
+  group_by(span) %>% 
+  summarise(n = n())
+
+ggplot(sensitivity_2)+
+  aes(x=span, y=n)+
+  geom_line()
 
 ```
 
