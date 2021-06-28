@@ -78,7 +78,7 @@ shocks_gam_apply <- function(this_cd){
   #data frame with shock
   these_shocks <- 
     production_w_baselines %>% 
-    group_by(iso_3c, area, group) %>% 
+    group_by(iso_3c, area, group, baseline_durations, average) %>% 
     nest() %>% 
     mutate(shock_presence = map(data, ~shock_detector_gam(target_time_series = .$value, target_cooks_distance = this_cd))) %>% 
     unnest(cols = c(data, shock_presence)) %>% 
@@ -90,15 +90,13 @@ shocks_gam_apply <- function(this_cd){
 }
   
 shocks_by_cooks_distance <- map_df(cooks_distances, shocks_gam_apply) %>% 
-  mutate(delta_production = lagged_value - value) %>% 
-  filter(shock_presence==1)
+  mutate(delta_production = lagged_value - value) 
 
 
 
 #export shocks data
 
 saveRDS(shocks_by_cooks_distance, file = here("data", "generated_data","shocks_to_primary_comms", "shocks_w_baselines_cooks_distance_COMMS.rds"))
-
 
 
 
@@ -137,9 +135,9 @@ shock_loess_apply <-   function(this_span){
   #data frame with shock
   these_shocks <- 
     production_w_baselines %>% 
-    group_by(iso_3c, area, group) %>% 
+    group_by(iso_3c, area, group, baseline_durations, average) %>% 
     nest() %>% 
-    mutate(shock_presence = map(data, ~shock_detector_loess(target_time_series = .$value, target_cooks_distance = 0.3, target_span = this_span))) %>% 
+    mutate(shock_presence = map(data, ~shock_detector_loess(target_time_series = .$value, target_cooks_distance = 0.35, target_span = this_span))) %>% 
     unnest(cols = c(data, shock_presence)) %>% 
     mutate(span = this_span)
   
@@ -147,8 +145,7 @@ shock_loess_apply <-   function(this_span){
 }
 
 shocks_by_span <- map_df(spans, shock_loess_apply) %>% 
-  mutate(delta_production = lagged_value - value) %>% 
-  filter(shock_presence=1)
+  mutate(delta_production = lagged_value - value)
 
 #export shocks data
 

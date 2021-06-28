@@ -111,6 +111,7 @@ ovine_meat <- c("Meat, goat", "Meat, sheep")
                              item %in% offals ~ "Offals",
                              item %in% ovine_meat ~ "Sheep & goat meat",
                              item %in% bovine_meat ~ "Cattle and buffalo meat",
+                             item == "Meat, pig" ~ "Pig meat",
                              item == "Meat, chicken" ~ "Chicken meat",
                              TRUE ~ item)) %>% 
     select(area, item, group, element, year, value, unit)
@@ -211,7 +212,7 @@ production_tidy_2 <-
     filter(!is.na(iso_3c))
 )
 
-unique(stocks_tidy_3$area)
+
 ```
 
 

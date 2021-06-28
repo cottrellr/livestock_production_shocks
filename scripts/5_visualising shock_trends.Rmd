@@ -9,100 +9,232 @@ library(ggpubr)
 library(tidyverse)
 library(here) 
 
+
+source(here("scripts", "2_shock_detection_function.R"))
+
 ```
 
 ## Import data
 ```{r}
 
-shocks_cd <- read_csv(here("data", "generated_data", "shocks_w_baselines_cooks_distance.csv"))
+shocks_to_production_gam <- tibble(readRDS(here("data", "generated_data", "shocks_to_primary_comms", "shocks_w_baselines_cooks_distance_COMMS.rds")))
 
-shocks_span <- read_csv(here("data", "generated_data", "shocks_w_baselines_span.csv"))
+shocks_to_production_loess <- tibble(readRDS(here("data", "generated_data", "shocks_to_primary_comms", "shocks_w_baselines_cooks_distance_COMMS.rds")))
+
+shocks_to_stocks_gam <- tibble(readRDS(here("data", "generated_data", "shocks_to_stocks", "shocks_w_baselines_cooks_distance_STOCKS.rds"))) %>% 
+  filter(!is.na(lagged_value) & delta_production>0)
 
 production <- tibble(readRDS(here("data", "production_tidy", "production_wo_former_nations.rds"))) %>% ungroup()
 
+stocks <- tibble(readRDS(here("data", "production_tidy", "stocks_wo_former_nations.rds"))) %>% ungroup()
+
+
+
+production %>% filter(group=="Pig meat")
 ```
 
 
-## Annual time series by group
+## Convert number of shocks to shock frequencies
+
 ```{r}
 
+#isolate only detected shock events
+production_shocks_gam <- shocks_to_production_gam %>% 
+  filter(shock_presence==1) %>% #filter out the shocks
+  filter(delta_production>0) %>% # filter out only the negative shocks i.e. baseline is larger than shock year
+  mutate(group = case_when(group == "Meat, pig" ~ "Pig meat",
+                           TRUE ~ group)) #corrects the nomenclature stuff up in the first shocks analysis run
 
- time_series_freq <- production %>% 
+  
+
+
+#Create data frame of how many times series for each commodity for each year in produciton data - iterate for every cooks distance
+
+cooks_distances <- seq(from =0.05, to=1, by=0.05)
+
+iterate_cooks_distance <-  function(this_cd){
+  
+  this_df <- production %>% 
+    filter(value>0) %>% 
     group_by(group, year) %>% 
     summarise(row_n= n()) %>% 
-  ungroup() %>% 
-  mutate(group = as.character(group),
-         year = as.numeric(year))
+    ungroup() %>% 
+    mutate(group = as.character(group),
+           year = as.numeric(year)) %>% 
+    mutate(cooks_distance = this_cd)
+  
+}
+
+
+freq_w_cd <- map_df(cooks_distances, iterate_cooks_distance)
  
 
 
+#duplicate for mean and median
+averages <- c("mean", "median") 
+ 
+iterate_averages <-  function(this_average){
+  
+  freq_w_cd %>% 
+    mutate(average = this_average)
+  
+}
+ 
+freq_w_average <- map_df(averages, iterate_averages)
+
+
+ 
+#iterate for baselines 
+
+baselines <- c(3,5,7)
+
+iterate_baselines <-  function(this_baseline){
+  
+  freq_w_average %>% 
+    mutate(baseline_durations = this_baseline)
+  
+}
+
+total_ts_freq <- map_df(baselines, iterate_baselines)
+
+ 
+#shocks by group by year across baselines, averages and cooks distance
 shocks_by_group <- 
-  shocks_cd %>% 
-   filter(shock_presence ==1 & delta_production>=0) %>% 
-   drop_na(lagged_value) %>% 
-   group_by(group, year, average, baseline_durations, cooks_distance) %>% 
-   summarise(shocks_n = n())
- 
-table_nrow <- length(unique(shocks_cd$group))*length(seq(from =1961, to =2019))*length(c("mean", "median"))*length(seq(from=0.4, to=0.8, by=0.1))*length(unique(shocks_cd$baseline_durations))
+  production_shocks_gam  %>% 
+   group_by(group, year, baseline_durations,average, cooks_distance) %>% 
+   summarise(shocks_n = n()) %>% 
+  mutate(shocks_n = as.double(shocks_n))
 
 
-rep(seq(from =1961, to =2019), length.out = table_nrow)
-rep(unique(shocks_cd$group), length.out = table_nrow)
+#join detected shock frequencies with frequency of time series to get normalized shock freq
+
+shock_frequencies <- left_join(total_ts_freq, shocks_by_group) %>% 
+  mutate(cooks_distance = as.numeric(cooks_distance)) %>% 
+  mutate(shocks_n = case_when(is.na(shocks_n)~0,
+                              TRUE ~ shocks_n)) %>% 
+  mutate(shocks_freq = shocks_n/row_n) %>% 
+  mutate(interaction_var = interaction(group, cooks_distance, average, baseline_durations))
 
 
-shocks_by_group_by_year <- 
-  as.data.frame(table(shocks_by_group$year, shocks_by_group$group, shocks_by_group$average,shocks_by_group$baseline_durations, shocks_by_group$cooks_distance)) %>% 
-  rename(year = Var1,
-         group= Var2, 
-         average = Var3,
-         baseline_duration = Var4,
-         span = Var5) %>% 
-  mutate(year = as.numeric(levels(year))[year],
-         group = as.character(group)) %>% 
-  left_join(time_series_freq, by=c("year", "group")) %>% 
-  mutate(normalized = Freq/row_n)
-              
+
 ```
-## Temporal trends in shocks per group
+
+## Summmarise and plot annual trends in frequency.
+
+Calculate mean, min and max for each commodity and find parameter combination that minimizes sum of squares with the absolute mean of the shock frequency range for each year.
+
 ```{r}
 
-meat_list <- unique(shocks$group)
+#summarise shock frequency averages, min, max, for each year
+summary_annual <- shock_frequencies %>%
+  filter(cooks_distance %in% seq(from =0.05, to= 0.35, by = 0.05)) %>% 
+  group_by(group, year) %>% 
+  summarise(median = median(shocks_freq),
+            mean = mean(shocks_freq),
+            min = min(shocks_freq),
+            max= max(shocks_freq)) %>% 
+   mutate(decade = case_when(year %in% seq(1961,1969) ~ "1960s",
+                            year %in% seq(1970,1979) ~"1970s",
+                            year %in% seq(1980,1989) ~ "1980s",
+                            year %in% seq(1990,1999) ~ "1990s",
+                            year %in% seq(2000, 2009) ~ "2000s",
+                            year %in% seq(2010, 2020) ~ "2010s"))
 
 
-camelids <- shocks_by_group_by_year %>% filter(group=="Camelid meat")
-
-ggplot(camelids, aes(x=year, y=Freq, group = interaction(average, baseline_duration, cooks_D)))+
-  geom_line()
-
-cattle <- shocks_by_group_by_year %>% filter(group=="Cattle and buffalo meat")
-
-ggplot()+
-  geom_line(data = cattle, aes(x=year, y=normalized, group = interaction(average, baseline_duration, span)))+
-  geom_line(data = cattle_average, aes(x=year, y=mean), col= "red")
-
-
-cattle_average <- 
-  cattle %>% 
-  group_by(year) %>% 
-  summarise(median = median(normalized),
-            mean = mean(normalized))
-
-cattle_CI <- 
-  cattle %>% 
-  group_by(year) %>% 
-  summarise(min = min(normalized),
-            max=max(normalized))
+#summarise shock frequency averages for each decade
+summary_decade <- shock_frequencies %>%
+  filter(cooks_distance %in% seq(from =0.05, to= 0.35, by = 0.05)) %>% 
+  mutate(decade = case_when(year %in% seq(1961,1969) ~ "1960s",
+                            year %in% seq(1970,1979) ~"1970s",
+                            year %in% seq(1980,1989) ~ "1980s",
+                            year %in% seq(1990,1999) ~ "1990s",
+                            year %in% seq(2000, 2009) ~ "2000s",
+                            year %in% seq(2010, 2020) ~ "2010s")) %>% 
+  group_by(group, decade) %>% 
+  summarise(decade_mean = mean(shocks_freq),
+            decade_median = median(shocks_freq))
 
 
-ggplot()+
-  geom_ribbon(data = cattle_CI, aes(x = year, ymin = min, ymax=max), fill= "grey50")+
-  geom_line(data = cattle_average, aes(x=year, y=mean), col="red")+
+#join annual and decadal data for easy plotting together
+summary_all <- left_join(summary_annual, summary_decade)
+
+
+
+###This bit likely not needed when not exploring drivers
+
+####Function to minimise sum of squares for each group and parameter combination with the absolute mean in annual range of frequencies
+
+
+# sum_squared_residuals <- function(these_frequencies, this_food){
+#   
+#   this_lm <- lm(these_frequencies~ summary_all %>% filter(group == this_food) %>% .$mean)
+#   
+#   sum_squares <-sum(residuals(this_lm)^2)
+#   return(sum_squares)
+# }
+# 
+# 
+# # create new list of data frames and map the closest matching frequencies on
+# param_combination_list <- shock_frequencies %>% 
+#   group_by(interaction_var) %>% 
+#   nest() %>% 
+#   mutate(sum_squares = map(data, ~ (sum_squared_residuals(these_frequencies = .$shocks_freq, this_food = unique(.$group))))) %>% 
+#   unnest() %>% 
+#   ungroup() %>% 
+#   group_split(group) 
+# 
+# 
+# minimums_df <- function(this_food){
+#   this_minimum <- min(unique(this_food$sum_squares))
+#   this_df <- this_food %>% filter(sum_squares == this_minimum)
+#   return(this_df)
+#   if_else(nrow(this_df) == 59, true = "PASS", false = paste0("WARNING", unique(this_df$group)))
+# }
+# 
+# 
+# map_df(param_combination_list, minimums_df)
+
+
+ts_plots <- 
+  summary_all %>% 
+  group_split(group) %>% 
+  map(~ggplot(.)+
+  geom_ribbon(aes(x=year, ymin=min, ymax=max),fill="grey80")+
+  geom_line(aes(x=year, y=decade_mean),linetype="dashed")+
+    geom_line(aes(x=year, y=median), col="purple")+
+  geom_line(aes(x=year, y=mean), col="red")+
+  
+  labs(subtitle = unique(.$group),
+       y="Shock frequency",
+       x="Year")+
+  scale_y_continuous(limits = c(0, 0.2))+
+  theme_pubr()+
+    theme(text=element_text(size=7),
+          panel.grid.major.y = element_line(colour = "grey90")))
+
+
+plot_list <-  ggarrange(ts_plots[[3]],
+          ts_plots[[2]],
+          ts_plots[[8]],
+          ts_plots[[10]],
+          ts_plots[[4]],
+          ts_plots[[6]],
+          ts_plots[[9]],
+          ts_plots[[5]],
+          ts_plots[[1]],
+          ts_plots[[7]],
+          nrow = 5,
+          ncol=2)
+
+
+ggsave(filename = here("explore", "first_ts_output.pdf"),  device = "pdf", width = 15, height=20, units = "cm")
   
 
 
 
+```
 
-plot(cattle_average$mean, type="l")
+
 
 ```
 
