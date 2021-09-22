@@ -99,7 +99,7 @@ shocks_by_cooks_distance <- map_df(cooks_distances, shocks_gam_apply) %>%
 
 #export shocks data
 
-saveRDS(shocks_by_cooks_distance, file = here("data", "generated_data", "shocks_to_stocks", "shocks_w_baselines_cooks_distance_STOCKS.rds"))
+#saveRDS(shocks_by_cooks_distance, file = here("data", "generated_data", "shocks_to_stocks", "shocks_w_baselines_cooks_distance_STOCKS.rds"))
 
 
 
