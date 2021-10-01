@@ -67,12 +67,9 @@ livestock_primary %>% filter(element == "Production" & unit== "tonnes") %>% .$it
 (
   stocks_tidy <- livestock_animals %>% 
     #take out elements we don't want  
-    filter(!item %in% c("Cattle", "Buffaloes", "Sheep", "Goats", "Poultry Birds", "Beehives")) %>% 
+    filter(item %in% c("Cattle", "Buffaloes", "Chickens", "Sheep", "Goats", "Pigs" )) %>% 
     #aggregate some groups e.g. guinea fowl
-    mutate(group = case_when(item %in% c("Asses", "Horses",  "Mules") ~ "Equines",
-                             item %in% c("Turkeys", "Ducks", "Geese and guinea fowls", "Pigeons, other birds") ~ "Poultry & game birds, other",
-                             item %in% c("Camels", "Camelids, other") ~ "Camelids",
-                             item %in% c("Rabbits and hares", "Rodents, other") ~ "Miscellaneous, other",
+    mutate(group = case_when(item %in% c("Buffaloes", "Sheep",  "Goats") ~ "Other",
                              TRUE ~ item)) %>% 
     #adjust poultry and rodents value to 1000 fold greater because of reported units
     mutate(value = case_when(item %in% head_1000 ~ value*1000,

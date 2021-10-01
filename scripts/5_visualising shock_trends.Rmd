@@ -7,30 +7,39 @@ output: html_document
 library(vroom)
 library(ggpubr)
 library(tidyverse)
-library(here) 
+library(here)
+library(readxl)
+library(janitor)
 
 
 source(here("scripts", "2_shock_detection_function.R"))
+
+source(here("source", "directories.R"))
 
 ```
 
 ## Import data
 ```{r}
 
-shocks_to_production_gam <- tibble(readRDS(here("data", "generated_data", "shocks_to_primary_comms", "shocks_w_baselines_cooks_distance_COMMS.rds")))
+#shocks_to_production_gam <- tibble(readRDS(here("data", "generated_data", "shocks_to_primary_comms", "shocks_w_baselines_cooks_distance_COMMS.rds")))
 
-shocks_to_production_loess <- tibble(readRDS(here("data", "generated_data", "shocks_to_primary_comms", "shocks_w_baselines_cooks_distance_COMMS.rds")))
+#shocks_to_production_loess <- tibble(readRDS(here("data", "generated_data", "shocks_to_primary_comms", "shocks_w_baselines_cooks_distance_COMMS.rds")))
 
 shocks_to_stocks_gam<- tibble(readRDS(here("data", "generated_data", "shocks_to_stocks", "shocks_w_baselines_cooks_distance_STOCKS.rds"))) %>% 
   filter(!is.na(lagged_value) & delta_production>0)
 
 
-shocks_to_stocks_loess<- tibble(readRDS(here("data", "generated_data", "shocks_to_stocks", "shocks_w_baselines_span_STOCKS.rds"))) %>% 
-  filter(!is.na(lagged_value) & delta_production>0)
+# shocks_to_stocks_loess<- tibble(readRDS(here("data", "generated_data", "shocks_to_stocks", "shocks_w_baselines_span_STOCKS.rds"))) %>% 
+#   filter(!is.na(lagged_value) & delta_production>0)
 
-production <- tibble(readRDS(here("data", "production_tidy", "production_wo_former_nations.rds"))) %>% ungroup()
+#production <- tibble(readRDS(here("data", "production_tidy", "production_wo_former_nations.rds"))) %>% ungroup()
 
 stocks <- tibble(readRDS(here("data", "production_tidy", "stocks_wo_former_nations.rds"))) %>% ungroup()
+
+
+#EMDAT extreme events data
+
+
 
 
 
@@ -117,8 +126,6 @@ shock_frequencies <- left_join(total_ts_freq, shocks_by_group) %>%
                               TRUE ~ shocks_n)) %>% 
   mutate(shocks_freq = shocks_n/row_n) %>% 
   mutate(interaction_var = interaction(group, cooks_distance, average, baseline_durations))
-
-
 
 ```
 
@@ -238,17 +245,15 @@ ggsave(filename = here("explore", "first_ts_output.pdf"),  device = "pdf", width
 ```
 
 #STOCKS ANALYSIS
+
+#using gam models
 ```{r}
 
 #isolate only detected shock events
 stocks_shocks_gam <- shocks_to_stocks_gam %>% 
   filter(shock_presence==1) %>% #filter out the shocks
-  filter(delta_production>0) %>% # filter out only the negative shocks i.e. baseline is larger than shock year
-  mutate(group = case_when(group == "Meat, pig" ~ "Pig meat",
-                           TRUE ~ group)) #corrects the nomenclature stuff up in the first shocks analysis run
-
-  
-
+  filter(delta_production>0) # filter out only the negative shocks i.e. baseline is larger than shock year
+ 
 #Create data frame of how many times series for each commodity for each year in stocks data - iterate for every cooks distance
 
 cooks_distances <- seq(from =0.05, to=1, by=0.05)
@@ -316,6 +321,13 @@ shock_frequencies <- left_join(total_ts_freq, shocks_by_group) %>%
   mutate(shocks_freq = shocks_n/row_n) %>% 
   mutate(interaction_var = interaction(group, cooks_distance, average, baseline_durations))
 
+```
+
+
+#adding extreme weather data
+
+```{r}
+emdat_events <-  read_csv(here("data", "generated_data", "extreme_events", "emdat_events_tidy.csv"))
 
 
 
@@ -323,14 +335,14 @@ shock_frequencies <- left_join(total_ts_freq, shocks_by_group) %>%
 
 
 
-#
+# Visualising trends
 ```{r}
 
 
 
 #summarise shock frequency averages, min, max, for each year
 summary_annual <- shock_frequencies %>%
-  filter(cooks_distance %in% seq(from =0.05, to= 0.35, by = 0.05)) %>% 
+  filter(cooks_distance %in% seq(from =0.1, to= 0.9, by = 0.05)) %>% 
   group_by(group, year) %>% 
   summarise(median = median(shocks_freq),
             mean = mean(shocks_freq),
@@ -346,7 +358,7 @@ summary_annual <- shock_frequencies %>%
 
 #summarise shock frequency averages for each decade
 summary_decade <- shock_frequencies %>%
-  filter(cooks_distance %in% seq(from =0.05, to= 0.35, by = 0.05)) %>% 
+  filter(cooks_distance %in% seq(from =0.1, to= 0.9, by = 0.05)) %>% 
   mutate(decade = case_when(year %in% seq(1961,1969) ~ "1960s",
                             year %in% seq(1970,1979) ~"1970s",
                             year %in% seq(1980,1989) ~ "1980s",
@@ -359,7 +371,17 @@ summary_decade <- shock_frequencies %>%
 
 
 #join annual and decadal data for easy plotting together
-summary_all <- left_join(summary_annual, summary_decade)
+summary_all <- left_join(summary_annual, summary_decade) %>%
+  left_join(emdat_events)
+  
+#For use if disagregating
+  # 
+  # left_join(emdat_events %>% filter(classification=="Disease epidemics") %>% 
+  #             select(-classification, -rel_freq)) %>% 
+  # rename(Disease = freq) %>% 
+  # left_join(emdat_events %>% filter(classification=="Extreme weather events")%>% 
+  #             select(-classification, -rel_freq)) %>% 
+  # rename(`Extreme weather` = freq) 
 
 
 
@@ -396,40 +418,56 @@ summary_all <- left_join(summary_annual, summary_decade)
 # 
 # 
 # map_df(param_combination_list, minimums_df)
+coeff <- max(summary_all$freq)/max(summary_all$max)
 
 
 ts_plots <- 
   summary_all %>% 
-  group_split(group) %>% 
+  group_by(group) %>% 
+  group_split() %>% 
   map(~ggplot(.)+
+  geom_rect(aes(xmin=year-0.5, xmax=year+0.5, ymin=-Inf, ymax=Inf, fill=freq), colour=NA)+
   geom_ribbon(aes(x=year, ymin=min, ymax=max),fill="grey80")+
   geom_line(aes(x=year, y=decade_mean),linetype="dashed")+
     geom_line(aes(x=year, y=median), col="purple")+
   geom_line(aes(x=year, y=mean), col="red")+
+    
   
   labs(subtitle = unique(.$group),
        y="Shock frequency",
-       x="Year")+
-  scale_y_continuous(limits = c(0, 0.2))+
+       x="Year", fill="Extreme event frequency")+
+  scale_y_continuous(limits=c(0,0.1))+
+  scale_x_continuous(expand = c(0,0))+
   theme_pubr()+
     theme(text=element_text(size=7),
-          panel.grid.major.y = element_line(colour = "grey90")))
+          legend.title = element_text(size=7),
+          legend.text = element_text(size=7),
+          panel.grid=element_blank(),
+          plot.margin = margin(t=0.05,r=0.2, l=0.2,b=0, unit = "cm"))+
+    guides(fill = guide_colorbar(barwidth = 8, barheight = 0.5, title.position = "top", title.hjust = 0.5)))
 
 
-plot_list <-  ggarrange(ts_plots[[3]],
-          ts_plots[[2]],
-          ts_plots[[8]],
-          ts_plots[[10]],
-          ts_plots[[4]],
-          ts_plots[[6]],
-          ts_plots[[9]],
-          ts_plots[[5]],
-          ts_plots[[1]],
-          ts_plots[[7]],
-          nrow = 5,
-          ncol=2)
+legend <- get_legend(ts_plots[[1]])
 
 
-ggsave(filename = here("explore", "first_ts_output.pdf"),  device = "pdf", width = 15, height=20, units = "cm")
+plot_list <- 
+  ggarrange(
+    ggarrange(ts_plots[[2]],
+              ts_plots[[4]],
+              ts_plots[[1]],
+              ts_plots[[3]],
+              legend = "none",
+              nrow = 4,
+              ncol=1),
+    legend,
+    nrow=2, 
+    ncol = 1,
+    heights = c(1,0.1))
+    
+
+
+ggsave(filename = here("explore", "first_ts_output_stocks.pdf"),  device = "pdf", width = 7.5, height=20, units = "cm")
 ```
+
+
 
