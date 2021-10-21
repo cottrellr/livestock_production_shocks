@@ -10,6 +10,9 @@ library(tidyverse)
 library(here)
 library(readxl)
 library(janitor)
+library(sf)
+library(rnaturalearth)
+library(ggpubr)
 
 
 source(here("scripts", "2_shock_detection_function.R"))
@@ -38,14 +41,16 @@ stocks <- tibble(readRDS(here("data", "production_tidy", "stocks_wo_former_natio
 
 
 #EMDAT extreme events data
+emdat_events <-  read_csv(here("data", "generated_data", "extreme_events", "emdat_events_tidy.csv"))
 
 
+#country groups
 
-
+country_groups <- read_csv(here(dir_faostat_2021, "CL_FI_COUNTRY_GROUPS.csv"))
 
 ```
 
-#PRODUCTION ANALYSIS
+#PRODUCTION (Meats, Milk) ANALYSIS
 ## Convert number of shocks to shock frequencies
 
 ```{r}
@@ -324,21 +329,9 @@ shock_frequencies <- left_join(total_ts_freq, shocks_by_group) %>%
 ```
 
 
-#adding extreme weather data
-
-```{r}
-emdat_events <-  read_csv(here("data", "generated_data", "extreme_events", "emdat_events_tidy.csv"))
-
-
-
-```
-
-
 
 # Visualising trends
 ```{r}
-
-
 
 #summarise shock frequency averages, min, max, for each year
 summary_annual <- shock_frequencies %>%
@@ -469,5 +462,156 @@ plot_list <-
 ggsave(filename = here("explore", "first_ts_output_stocks.pdf"),  device = "pdf", width = 7.5, height=20, units = "cm")
 ```
 
+#Mapping shock frequency by region
+
+
+Convert shock numbers to frequencies per region
+```{r}
+
+
+###need to remember to go back into code to control the shock reporting in consecutive years
+
+country_numbers <- 
+  stocks %>% 
+  left_join(country_groups %>% select(ISO3_Code, GeoRegion_Group), by = c("iso_3c" = "ISO3_Code")) %>% 
+  group_by(group, GeoRegion_Group) %>% 
+  summarise(unique_countries = n_distinct(area))
+
+(shocks_w_regions <- shocks_to_stocks_gam %>% 
+  filter(baseline_durations == 7 & average == "median" & cooks_distance==0.25 & shock_presence==1) %>% 
+  left_join(country_groups %>% select(UN_Code, ISO3_Code, GeoRegion_Group), by = c("iso_3c" = "ISO3_Code")) %>%
+  group_by(group, GeoRegion_Group) %>% 
+  summarise(shocks_n = n()) %>% 
+  left_join(country_numbers, by=c("group", "GeoRegion_Group")) %>% 
+  mutate(shock_freq = shocks_n/unique_countries)
+  )
+  
+
+
+
+```
+Create map
+```{r}
+#map polygons
+world_map <- rnaturalearth::ne_countries(scale = 110, returnclass = "sf") %>% st_transform(world_map, crs = "+proj=moll")
+
+#bounding box
+bbox <- rnaturalearth::ne_download(scale = 110, type = "wgs84_bounding_box", category = "physical", returnclass = "sf") %>% st_transform(crs = "+proj=moll")
+
+
+#Cattle map
+
+cattle_df <- world_map %>% 
+  left_join(shocks_w_regions %>% filter(group=="Cattle"), by = c("subregion" = "GeoRegion_Group"))
+
+(cattle_map <- 
+  ggplot()+
+  geom_sf(data = bbox, fill="aliceblue", colour="grey95")+
+  geom_sf(data = cattle_df, aes(fill=shock_freq), colour= "grey60")+
+  theme_pubr()+
+  theme(panel.grid = element_line(colour="grey90"))+
+  labs(subtitle = "Cattle")+
+  
+  scale_fill_gradient(low = "lemonchiffon2", high = "firebrick", na.value = "grey98")+
+    guides(fill=FALSE)
+
+)
+
+
+#Other map
+
+other_df <- world_map %>% 
+  left_join(shocks_w_regions %>% filter(group=="Other"), by = c("subregion" = "GeoRegion_Group"))
+
+(other_map <- 
+  ggplot()+
+  geom_sf(data = bbox, fill="aliceblue", colour="grey95")+
+  geom_sf(data = other_df, aes(fill=shock_freq), colour= "grey60")+
+  theme_pubr()+
+  theme(panel.grid = element_line(colour="grey90"))+
+    labs(subtitle = "Other ruminants")+
+  
+  scale_fill_gradient(low = "lemonchiffon2", high = "firebrick", na.value = "grey98")+
+    guides(fill=FALSE)
+
+)
+
+
+#Chicken map
+
+chicken_df <- world_map %>% 
+  left_join(shocks_w_regions %>% filter(group=="Chickens"), by = c("subregion" = "GeoRegion_Group"))
+
+(chicken_map <- 
+  ggplot()+
+  geom_sf(data = bbox, fill="aliceblue", colour="grey95")+
+  geom_sf(data = chicken_df, aes(fill=shock_freq), colour= "grey60")+
+  theme_pubr()+
+  theme(panel.grid = element_line(colour="grey90"))+
+  labs(subtitle = "Chickens")+
+  
+  scale_fill_gradient(low = "lemonchiffon2", high = "firebrick", na.value = "grey98")+
+    guides(fill=FALSE)
+
+)
+
+
+#Pigs map
+
+pigs_df <- world_map %>% 
+  left_join(shocks_w_regions %>% filter(group=="Pigs"), by = c("subregion" = "GeoRegion_Group"))
+
+(pigs_map <- 
+  ggplot()+
+  geom_sf(data = bbox, fill="aliceblue", colour="grey95")+
+  geom_sf(data = pigs_df, aes(fill=shock_freq), colour= "grey60")+
+  theme_pubr()+
+  theme(panel.grid = element_line(colour="grey90"))+
+  labs(subtitle = "Pigs")+
+  
+  scale_fill_gradient(low = "lemonchiffon2", high = "firebrick", na.value = "grey98")+
+    guides(fill=FALSE)
+
+)
+
+
+
+stocks %>% filter(area=="Australia") %>% 
+  ggplot(aes(x=year, y=value))+geom_line()+
+  facet_wrap(~group, scales="free")
+
+
+
+stocks_shocks_gam %>%  filter(baseline_durations == 7 & average == "median" & cooks_distance==0.3)
+```
+Compose plot
+```{r}
+
+
+plot_list <- 
+  ggarrange(
+  ggarrange(chicken_map,
+            pigs_map,
+            cattle_map,
+            other_map,
+            nrow=4,
+            ncol=1),
+
+    ggarrange(ts_plots[[2]],
+              ts_plots[[4]],
+              ts_plots[[1]],
+              ts_plots[[3]],
+              legend = "none",
+              nrow = 4,
+              ncol=1),
+    nrow=1, 
+    ncol = 2,
+  widths = c(0.6, 0.55))
+
+
+
+ggsave(filename = here("explore", "first_complete_output_stocks.pdf"),  device = "pdf", width = 18, height=20, units = "cm")
+
+```
 
 
